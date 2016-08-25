@@ -1,9 +1,10 @@
 '''
-  The example demonstrates how to use minpy model builder to construct neural networks.
-  More models are available in minpy.nn.model_gallery.
-  The training procedure is described in minpy solver tutorial.
-  For more details about the training procedure, please refer to:
+  This example demonstrates how to use minpy model builder to construct neural networks.
+
+  For details about how to train a model with solver, please refer to:
     http://minpy.readthedocs.io/en/latest/tutorial/complete.html
+
+  More models are available in minpy.nn.model_gallery.
 '''
 
 import sys
@@ -13,6 +14,7 @@ import minpy
 import minpy.numpy as np
 from minpy.nn import layers
 from minpy.nn.model import ModelBase
+import minpy.nn.model_builder as builder
 from minpy.nn.solver import Solver
 from minpy.nn.io import NDArrayIter
 from examples.utils.data_utils import get_CIFAR10_data
@@ -21,21 +23,18 @@ from examples.utils.data_utils import get_CIFAR10_data
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-# build a 2-layer perceptron
-import minpy.nn.model_builder as builder
-from model_gallery import *
-MLP = builder.Sequential(
-  builder.Affine(512),
-  builder.ReLU(),
-  builder.Affine(10)
-)
-
-# train the perceptron on CIFAR-10 dataset
 def main(args):
-    # model = builder.Model(MultiLayerPerceptron(512, 10), 'softmax', (3 * 32 * 32,))
-    model = builder.Model(residual_network(1), 'softmax', (3 * 32 * 32,))
+    # Define a 2-layer perceptron
+    MLP = builder.Sequential(
+        builder.Affine(512),
+        builder.ReLU(),
+        builder.Affine(10)
+    )
+
+    # Cast the definition to a model compatible with minpy solver
+    model = builder.Model(MLP, 'softmax', (3 * 32 * 32,))
+
     data = get_CIFAR10_data(args.data_dir)
-    # reshape all data to matrix
     data['X_train'] = data['X_train'].reshape([data['X_train'].shape[0], 3 * 32 * 32])
     data['X_val'] = data['X_val'].reshape([data['X_val'].shape[0], 3 * 32 * 32])
     data['X_test'] = data['X_test'].reshape([data['X_test'].shape[0], 3 * 32 * 32])
@@ -54,10 +53,13 @@ def main(args):
                     train_dataiter,
                     test_dataiter,
                     num_epochs=10,
-                    init_rule='xavier',
+                    init_rule='gaussian',
+                    init_config={
+                        'stdvar': 0.001
+                    },
                     update_rule='sgd_momentum',
                     optim_config={
-                        'learning_rate': 1e-4,
+                        'learning_rate': 1e-5,
                         'momentum': 0.9
                     },
                     verbose=True,

@@ -1,6 +1,3 @@
-'''
-  Currently model builder only supports building one model each time.
-'''
 import minpy.numpy as np
 import minpy.core
 import minpy.nn.layers as layers
@@ -8,9 +5,17 @@ from minpy.nn.model import ModelBase
 import mxnet as mx
 
 class Module(object):
+    """ The base class of building blocks of neural networks. """
+
     def __init__(self):
         pass
+
     def parameter_shape(self, input_shape):
+        """ Customized modules should override this function.
+
+        :param tuple input_shape: The shape of one training sample, i.e. (3072,) or (3, 32, 32).
+        :return: A dictionary mapping the names of parameters to their shapes.
+        """
         return {}
 
 
@@ -21,6 +26,7 @@ class Parallel(Module):
 
 class Sequential(Module):
     def __init__(self, *args):
+        super(Sequential, self).__init__()
         if args:
             assert all(isinstance(arg, Module) for arg in args)
             self.__modules = list(args)
@@ -77,7 +83,8 @@ class Sequential(Module):
 
 class Affine(Module):
     count = 0
-    def __init__(self, hidden_number):
+    def __init__(self, hidden_number, initializer=None):
+        super(Affine, self).__init__()
         self.hidden_number = hidden_number 
         self.weight = 'affine%d_weight' % self.__class__.count
         self.bias   = 'affine%d_bias' % self.__class__.count
@@ -97,7 +104,14 @@ class Affine(Module):
 
     def output_shape(self, input_shape):
         return (self.hidden_number,)
-
+    
+    def parameter_settings(self):
+      return initializer if initializer else \
+      {
+          self.weight : {'init_rule' : 'xavier'},
+          self.bias   : {'init_rule' : 'constant'}
+      }
+        
 
 class BatchNormalization(Module):
     count = 0
@@ -178,10 +192,16 @@ class SpatialBatchNormalization(BatchNormalization):
             self.beta  : (input_shape[0],)
         }
 
+    def parameter_settings(self):
+        return {
+            self.gamma : {'init_rule' : 'constant', 'init_config' : {'value': 1.0}},
+            self.beta  : {'init_rule' : 'constant'}
+        }
+
 
 class Convolution(Module):
     count = 0
-    def __init__(self, kernel_shape, kernel_number, stride=(1, 1), pad=(0, 0)):
+    def __init__(self, kernel_shape, kernel_number, stride=(1, 1), pad=(0, 0), initializer):
         super(Convolution, self).__init__()
         self.kernel_shape  = kernel_shape
         self.kernel_number = kernel_number
@@ -209,7 +229,7 @@ class Convolution(Module):
             'convolution_weight' : params[self.weight],
             'convolution_bias'   : params[self.bias]
         }
-      return minpy.core.Function(self.convolution, {'inputs':inputs.shape})(**args)
+        return minpy.core.Function(self.convolution, {'inputs':inputs.shape})(**args)
 
     def output_shape(self, input_shape):
         __, output_shape, __ = self.convolution.infer_shape(inputs=tuple([1] + list(input_shape)))
@@ -223,6 +243,13 @@ class Convolution(Module):
             self.weight : weight_shape, 
             self.bias   : bias_shape 
         }
+
+    def parameter_settings(self):
+      return initializer if initializer else \
+      {
+          self.weight : {'init_rule' : 'xavier'},
+          self.bias   : {'init_rule' : 'constant'}
+      }
 
 
 class Dropout(Module):
@@ -367,12 +394,14 @@ class Add(Module):
 
 
 class Model(ModelBase):
+    """ """
     def __init__(self, container, loss, input_shape):
-        '''
-          container:   module instance
-          loss:        'l2', 'softmax', 'svm', or a customized loss function
-          input_shape: tuple
-        '''
+        """
+        :param Module container:
+        :param str or callable loss: The loss function. Options: 'l2', 'softmax', 'svm' or customized functions receivingpredict and label as parameters.
+        :param input_shape:
+        """
+
         self.loss_function = loss
         super(Model, self).__init__()
         self.__container = container
