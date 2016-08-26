@@ -368,7 +368,7 @@ class Flatten(Module):
         shape = (inputs.shape[0], int(np.prod(np.array(inputs.shape[1:]))))
         return np.reshape(inputs, shape)
     def output_shape(self, input_shape):
-        return (np.prod(np.array(input_shape)),)
+        return (int(np.prod(np.array(input_shape))),)
 
 
 class Add(Module):
