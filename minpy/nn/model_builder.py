@@ -89,6 +89,8 @@ class Affine(Module):
         self.weight = 'affine%d_weight' % self.__class__.count
         self.bias   = 'affine%d_bias' % self.__class__.count
 
+        self.initializer = initializer
+
         self.__class__.count += 1
 
     def forward(self, inputs, params):
@@ -106,7 +108,7 @@ class Affine(Module):
         return (self.hidden_number,)
     
     def parameter_settings(self):
-      return initializer if initializer else \
+      return self.initializer if self.initializer else \
       {
           self.weight : {'init_rule' : 'xavier'},
           self.bias   : {'init_rule' : 'constant'}
@@ -201,7 +203,7 @@ class SpatialBatchNormalization(BatchNormalization):
 
 class Convolution(Module):
     count = 0
-    def __init__(self, kernel_shape, kernel_number, stride=(1, 1), pad=(0, 0), initializer):
+    def __init__(self, kernel_shape, kernel_number, stride=(1, 1), pad=(0, 0), initializer=None):
         super(Convolution, self).__init__()
         self.kernel_shape  = kernel_shape
         self.kernel_number = kernel_number
@@ -210,6 +212,8 @@ class Convolution(Module):
 
         self.weight = 'convolution%d_weight' % self.__class__.count
         self.bias   = 'convolution%d_bias' % self.__class__.count
+
+        self.initializer = initializer
 
         self.__class__.count += 1
 
@@ -245,7 +249,7 @@ class Convolution(Module):
         }
 
     def parameter_settings(self):
-      return initializer if initializer else \
+      return self.initializer if self.initializer else \
       {
           self.weight : {'init_rule' : 'xavier'},
           self.bias   : {'init_rule' : 'constant'}
@@ -411,7 +415,6 @@ class Model(ModelBase):
         for key in shapes:
             if key not in settings:
                 settings.update({key : {}})
-
         reduce(
             lambda arg, key : arg.add_param(name=key, shape=shapes[key], **settings[key]),
             shapes.keys(),
