@@ -365,8 +365,8 @@ class Flatten(Module):
     def __init__(self):
         super(Flatten, self).__init__()
     def forward(self, inputs, *args):
-        shape = (inputs.shape[0], np.prod(np.array(inputs.shape[1:])))
-        return np.reshape(self, shape)
+        shape = (inputs.shape[0], int(np.prod(np.array(inputs.shape[1:]))))
+        return np.reshape(inputs, shape)
     def output_shape(self, input_shape):
         return (np.prod(np.array(input_shape)),)
 
