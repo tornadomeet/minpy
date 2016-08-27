@@ -16,6 +16,7 @@ class Module(object):
         :param tuple input_shape: The shape of one training sample, i.e. (3072,) or (3, 32, 32).
         :return: A dictionary mapping the names of parameters to their shapes.
         """
+
         return {}
 
 
@@ -26,6 +27,11 @@ class Parallel(Module):
 
 class Sequential(Module):
     def __init__(self, *args):
+        """ Create feedforward networks. It is also used to construct sequential parts of networks.
+
+        :param Module args: all layers of the feedforward networks in sequential order.
+        """
+
         super(Sequential, self).__init__()
         if args:
             assert all(isinstance(arg, Module) for arg in args)
@@ -69,21 +75,43 @@ class Sequential(Module):
         return settings
 
     def append(self, module):
+        """ Append a module (layer) at the end of the feedforward network.
+
+        :param Module module: the module to append.
+        :return: None.
+        """
+
         assert isinstance(module, Module)
         self.__modules.append(module)
 
     def insert(self, index, module):
+        """ Insert a module (layer) at a specific position of the network.
+
+        :param int index: the index at which the module (layer) is inserted.
+        :param Module module: the module to insert.
+        :return: None.
+        """
+
         assert isinstance(module, Module)
         self.__modules.insert(index, module)
 
     def remove(index):
+        """ Remove the module at the specified index.
+
+        :param int index: the index at which the module (layer) is removed.
+        :return: None.
+        """
+
         assert -1 < index and index < len(self.__modules)
         del self.__modules[index]
-
 
 class Affine(Module):
     count = 0
     def __init__(self, hidden_number, initializer=None):
+        """ Fully connected layer. (affine transformation)
+
+        param int hidden_number: number of hidden units.
+        """
         super(Affine, self).__init__()
         self.hidden_number = hidden_number 
         self.weight = 'affine%d_weight' % self.__class__.count
@@ -118,6 +146,11 @@ class Affine(Module):
 class BatchNormalization(Module):
     count = 0
     def __init__(self, epsilon=1e-5, momentum=0.9):
+        """ Batch normalization. To perform batch normalization on convolution layer outputs, please use SpatialBatchNormalization.
+        
+        param float epsilon: hyperparameter guaranteeing numeric stability. 1e-5 by default.
+        param float momentum: hyperparameter controlling the speed at which running mean and running variance change.
+        """
         super(BatchNormalization, self).__init__()
         self.epsilon  = epsilon
         self.momentum = momentum
@@ -161,6 +194,11 @@ class BatchNormalization(Module):
 class SpatialBatchNormalization(BatchNormalization):
     count = 0
     def __init__(self, epsilon=1e-5, momentum=0.9):
+        """ Spatial batch normalization of convolution layer outputs.
+        
+        param float epsilon: hyperparameter guaranteeing numeric stability. 1e-5 by default.
+        param float momentum: hyperparameter controlling the speed at which running mean and running variance change.
+        """
         super(SpatialBatchNormalization, self).__init__(epsilon=1e-5, momentum=0.9)
         self.gamma = 'SpatialBN%d_gamma' % self.__class__.count
         self.beta  = 'SpatialBN%d_beta' % self.__class__.count
@@ -204,6 +242,14 @@ class SpatialBatchNormalization(BatchNormalization):
 class Convolution(Module):
     count = 0
     def __init__(self, kernel_shape, kernel_number, stride=(1, 1), pad=(0, 0), initializer=None):
+        """ Convolution layer
+
+        param tuple kernel_shape: the shape of kernel (x, y).
+        param int kernel_number: the number of kernels.
+        param tuple stride: stride (x, y).
+        param tuple pad: padding.
+        """
+
         super(Convolution, self).__init__()
         self.kernel_shape  = kernel_shape
         self.kernel_number = kernel_number
@@ -258,6 +304,11 @@ class Convolution(Module):
 
 class Dropout(Module):
     def __init__(self, p):
+        """ Dropout layer
+
+        param p: the probability at which the outputs of neurons are dropped.
+        """
+
         super(Dropout, self).__init__()
         self.probability = p
     def forward(self, inputs, params):
@@ -269,6 +320,12 @@ class Dropout(Module):
 class Pooling(Module):
     count = 0
     def __init__(self, mode, kernel_shape, stride=(1, 1), pad=(0, 0)):
+        """ Pooling layer
+        param tuple kernel_shape: the shape of kernel (x, y).
+        param tuple stride: stride (x, y).
+        param tuple pad: padding.
+        """
+
         '''
           mode: 'avg', 'max', 'sum'
         '''
@@ -301,6 +358,9 @@ class Pooling(Module):
 
 class Identity(Module):
     def __init__(self):
+        """ Identity transformation.
+        """
+
         super(Identity, self).__init__()
     def forward(self, inputs, *args):
         return inputs
@@ -322,6 +382,9 @@ class Export(Identity):
 
 class ReLU(Module):
     def __init__(self):
+        """ Rectified linear unit.
+        """
+
         super(ReLU, self).__init__()
     def forward(self, inputs, *args):
         return layers.relu(inputs)
@@ -331,6 +394,9 @@ class ReLU(Module):
 
 class Sigmoid(Module):
     def __init__(self):
+        """ Sigmoid activation function.
+        """
+
         super(Sigmoid, self).__init__()
     def forward(self, inputs, *args):
         return 1 / (1 + np.exp(-inputs))
@@ -340,6 +406,9 @@ class Sigmoid(Module):
 
 class Tanh(Module):
     def __init__(self):
+        """ Hyperbolic tangent activation function.
+        """
+
         super(Tanh, self).__init__()
     def forward(self, inputs, *args):
         return np.tanh(inputs)
@@ -349,9 +418,10 @@ class Tanh(Module):
 
 class Reshape(Module):
     def __init__(self, shape):
-        '''
-          shape: the new shape of one sample, e.g. (3072,) or (3, 32, 32)
-        '''
+        """ Reshape the inputs.
+        param tuple shape: the new shape of one sample, e.g. (3072,) or (3, 32, 32).
+        """
+
         super(Reshape, self).__init__()
         self.shape = shape
     def forward(self, inputs, *args):
@@ -363,6 +433,9 @@ class Reshape(Module):
 
 class Flatten(Module):
     def __init__(self):
+        """ Flatten the inputs.
+        """
+
         super(Flatten, self).__init__()
     def forward(self, inputs, *args):
         shape = (inputs.shape[0], int(np.prod(np.array(inputs.shape[1:]))))
@@ -373,10 +446,10 @@ class Flatten(Module):
 
 class Add(Module):
     def __init__(self, *args):
-        '''
-          args: the operations to be performed on inputs in parallel,
-                the results are added elementwise
-        '''
+        """ Perform different operations on the same input and add the results together in an elementwise way.
+        param *args: the operations to be performed on inputs in parallel, the outputs of these operations should be of the same shape.
+        """
+
         assert all(isinstance(arg, Module) for arg in args)
         self.__modules = list(args)
 
@@ -400,10 +473,10 @@ class Add(Module):
 class Model(ModelBase):
     """ """
     def __init__(self, container, loss, input_shape):
-        """
-        :param Module container:
+        """ Create the model from previous classes. The model is compatible with Minpy's solver.
+        :param Module container: the network architecture.
         :param str or callable loss: The loss function. Options: 'l2', 'softmax', 'svm' or customized functions receivingpredict and label as parameters.
-        :param input_shape:
+        :param input_shape: the shape of one sample, i.e. the shape of CIFAR-10 inputs is either (3072,), or (3, 32, 32).
         """
 
         self.loss_function = loss
@@ -434,6 +507,7 @@ class Model(ModelBase):
             return getattr(layers, '%s_loss' % self.loss_function)(prediction, labels)
         else:
             return self.loss_function(prediction, labels)
+
 
 # assistance functions
 def normal_shape(shape):
