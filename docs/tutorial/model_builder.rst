@@ -3,7 +3,7 @@ Complete model builder guide
 
 This tutorial demonstrates how to use Minpy's model builder to construct neural networks and train the networks with Minpy's solver. Minpy's model builder provides an interface that simplifies the syntax of network declaration. Networks constructed by model builder is compatible with Minpy's solver, which enables the networks to be trained directly by solver as described `here <https://github.com/dmlc/minpy/blob/master/examples/demo/minpy_tutorial.ipynb>`_.
 
-It is recommended to read `Minpy's solver tutorial <https://github.com/dmlc/minpy/blob/master/examples/demo/minpy_tutorial.ipynb>`_. to be familiarized with basic solver usage.
+It is recommended to read `Minpy's solver tutorial <https://github.com/dmlc/minpy/blob/master/examples/demo/minpy_tutorial.ipynb>`_ to be familiarized with basic solver usage.
 
 Get started
 -----------
