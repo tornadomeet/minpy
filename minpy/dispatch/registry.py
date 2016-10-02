@@ -62,6 +62,7 @@ class Registry(object):
         :param tuple bp_kwargs: Keyword arguments that need back propagation.
         :return: Primitives that satisfy the requirements above.
         """
+        # Just a redundant check. name must lay in self._reg by mocking.py.
         if name not in self._reg:
             return iter([])
         else:
