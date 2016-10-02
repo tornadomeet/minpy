@@ -6,6 +6,8 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import functools
+import os
+import yaml
 import minpy
 from minpy.array import Value
 from minpy.array_variants import ArrayType
@@ -15,10 +17,47 @@ from minpy.utils import log
 _logger = log.get_logger(__name__)
 # pylint: enable= invalid-name
 
+# Rules dict for AutoWhitelistPolicy
+_rules = None
+
+
+def _get_rules_config():
+    """Get rules configuration from configs
+    
+    Find rule configuration .minpy_rules.conf for AutoWhitelistPolicy
+    at current directory, $MINPY_CONF, and user's root in order.
+    
+    Returns
+    -------
+    Rule configuration dict used by AutoWhitelistPolicy
+    """
+    # TODO: add package data through installation
+    # http://peak.telecommunity.com/DevCenter/setuptools#non-package-data-files
+    config = None
+    locs = (os.curdir, os.path.expandvars('$MINPY_CONF'),
+            os.path.expanduser('~'))
+    conf = '.minpy_rules.conf'
+    for loc in locs:
+        try:
+            with open(os.path.join(loc, conf)) as f:
+                config = yaml.safe_load(f)
+                break
+        except IOError:
+            pass
+        except yaml.YAMLError:
+            _logger.warn('Find corrupted configuration at {}'.format(loc))
+    if config is None:
+        raise IOError("Cannot find MinPy's rule configuration {} "
+                      "at {}".format(conf, locs))
+    else:
+        _logger.debug('Use rule configuration at {}'.format(loc))
+    return config
+
 
 class PrimitivePolicyError(ValueError):
     """Error during choosing primitives."""
     pass
+
 
 class Policy(object):
     """Policy interface."""
@@ -38,12 +77,19 @@ class Policy(object):
         return type(self).__name__
 
     def __enter__(self):
-      self._old_policy = minpy.Config['default_policy']
-      minpy.set_global_policy(self)
-      return self
+        self._old_policy = minpy.Config['default_policy']
+        minpy.set_global_policy(self)
+        return self
 
     def __exit__(self, ptype, value, trace):
-      minpy.set_global_policy(self._old_policy)
+        minpy.set_global_policy(self._old_policy)
+
+
+class AutoWhitelistPolicy(Policy):
+    """Automatically dispatch ops to MXNet impl by provided config"""
+
+    def __init__(self):
+        self._rules = _rules
 
 
 class PreferMXNetPolicy(Policy):
@@ -57,6 +103,7 @@ class PreferMXNetPolicy(Policy):
             return ArrayType.NUMPY
         else:
             return None
+
 
 class OnlyNumPyPolicy(Policy):
     """ Only use NumPy functions. Return None if no required function. """
@@ -88,13 +135,19 @@ def resolve_name(name, reg, plc, args, kwargs):
     :param dict kwargs: Keyword arguments.
     :return: A function after resolution.
     """
+
     def fst(t):
         x, _ = t
         return x
-    bp_args = tuple(map(fst, filter(lambda x: isinstance(
-        x[1], Value) and x[1].marked_for_bp, enumerate(args))))
-    bp_kwargs = tuple(map(fst, filter(lambda x: isinstance(
-        x[1], Value) and x[1].marked_for_bp, kwargs.items())))
+
+    bp_args = tuple(
+        map(fst,
+            filter(lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
+                   enumerate(args))))
+    bp_kwargs = tuple(
+        map(fst,
+            filter(lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
+                   kwargs.items())))
     available = reg.iter_available_types(name, bp_args, bp_kwargs)
     preference = plc.decide(available, args, kwargs)
     if preference is None:
@@ -121,6 +174,7 @@ def wrap_policy(policy):
     -------
     A wrapped function running under specific policy
     """
+
     def policy_decorator(func):
         # pylint: disable= missing-docstring
         @functools.wraps(func)
@@ -130,6 +184,8 @@ def wrap_policy(policy):
             result = func(*args, **kwargs)
             minpy.set_global_policy(old_policy)
             return result
+
         return policy_wrapper
         # pylint: enable= missing-docstring
+
     return policy_decorator
