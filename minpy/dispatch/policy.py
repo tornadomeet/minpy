@@ -6,10 +6,12 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import functools
-import os
-import yaml
 import minpy
+import numpy
+from .rule import Blacklist
 from minpy.array import Value
+from minpy.array import Array
+from minpy.array import Number
 from minpy.array_variants import ArrayType
 from minpy.utils import log
 
@@ -17,46 +19,26 @@ from minpy.utils import log
 _logger = log.get_logger(__name__)
 # pylint: enable= invalid-name
 
-# Rules dict for AutoWhitelistPolicy
-_rules = None
-
-
-def _get_rules_config():
-    """Get rules configuration from configs
-    
-    Find rule configuration .minpy_rules.conf for AutoWhitelistPolicy
-    at current directory, $MINPY_CONF, and user's root in order.
-    
-    Returns
-    -------
-    Rule configuration dict used by AutoWhitelistPolicy
-    """
-    # TODO: add package data through installation
-    # http://peak.telecommunity.com/DevCenter/setuptools#non-package-data-files
-    config = None
-    locs = (os.curdir, os.path.expandvars('$MINPY_CONF'),
-            os.path.expanduser('~'))
-    conf = '.minpy_rules.conf'
-    for loc in locs:
-        try:
-            with open(os.path.join(loc, conf)) as f:
-                config = yaml.safe_load(f)
-                break
-        except IOError:
-            pass
-        except yaml.YAMLError:
-            _logger.warn('Find corrupted configuration at {}'.format(loc))
-    if config is None:
-        raise IOError("Cannot find MinPy's rule configuration {} "
-                      "at {}".format(conf, locs))
-    else:
-        _logger.debug('Use rule configuration at {}'.format(loc))
-    return config
-
 
 class PrimitivePolicyError(ValueError):
     """Error during choosing primitives."""
     pass
+
+
+class GradientDefError(ValueError):
+    """Error due to lack of gradient definition.
+    
+    Parameters
+    ----------
+    name : str
+        Name waiting for dispatch.
+    policy_name : str
+        Name of the policy in which the error occurs.
+    """
+    def __init__(self, name, policy_name):
+        super(GradientDefError, self).__init__("Cannot find function with proper gradient "
+                         "implementation for : {}() under policy"
+                         ": {}.".format(name, policy_name))
 
 
 class Policy(object):
@@ -65,10 +47,19 @@ class Policy(object):
     def decide(self, candidates, args, kwargs):
         """Primitive decision policy interface.
 
-        :param list candidates: A list of primitive objects.
-        :param list args: The positional arguments passed to the primitive.
-        :param dict kwargs: The keyword arguments passed to the primitive.
-        :return: Which implementation type will be used.
+        Parameters
+        ----------
+        candidates : list
+            A list of primitive objects.
+        args : list
+            The positional arguments passed to the primitive.
+        kwargs : dict
+            The keyword arguments passed to the primitive.
+
+        Returns
+        -------
+        ArrayType or None
+            The implementation type decided by the policy.
         """
         raise NotImplementedError()
 
@@ -84,12 +75,111 @@ class Policy(object):
     def __exit__(self, ptype, value, trace):
         minpy.set_global_policy(self._old_policy)
 
+    @staticmethod
+    def _available_prims(name, reg, args, kwargs):
+        """Return a list of available primitives"""
 
-class AutoWhitelistPolicy(Policy):
-    """Automatically dispatch ops to MXNet impl by provided config"""
+        def fst(t):
+            x, _ = t
+            return x
 
-    def __init__(self):
-        self._rules = _rules
+        bp_args = tuple(
+            map(fst, filter(
+                lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
+                enumerate(args))))
+        bp_kwargs = tuple(
+            map(fst, filter(
+                lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
+                kwargs.items())))
+        available = reg.iter_available_types(name, bp_args, bp_kwargs)
+        return available
+
+    def resolve_call(self, name, reg, args, kwargs):
+        """Resolve a function call.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function.
+        reg
+            Registry for functions.
+        args : tuple
+            Positional arguments.
+        kwargs : dict
+            Keyword arguments.
+
+        Returns
+        -------
+        Result from appropriate function call.
+        """
+        available = self._available_prims(name, reg, args, kwargs)
+        preference = self.decide(available, args, kwargs)
+        if preference is None:
+            if len(bp_args) == len(bp_kwargs) == 0:
+                raise PrimitivePolicyError(
+                    "Cannot find implementation for function: {}() under "
+                    "policy: {}.".format(name, self.name))
+            else:
+                raise GradientDefError(name, self.name)
+        prim = reg.get(name, preference)
+        _logger.debug('Found primitive "{}" with type {}.'.format(
+            name, prim.typestr))
+        return prim(*args, **kwargs)
+
+
+class AutoBlacklistPolicy(Policy):
+    """Automatically dispatch ops to MXNet impl by provided config.
+
+    Parameters
+    ----------
+    gen_rule : bool
+        If False, use loaded rules to decide. Otherwise, dynamically add new
+        rules and save to rule files.
+    append_rule : bool
+        If True, append new rules to loaded rules. Otherwise, start from
+        scratch.
+    """
+    def __init__(self, gen_rule=False, append_rule=True):
+        self._gen_rule = gen_rule
+        self._rules = Blacklist()
+        if gen_rule and not append_rule:
+            self._rules.reset_rules()
+    
+    def resolve_call(self, name, reg, args, kwargs):
+
+        def get_result(impl_type):
+            prim = reg.get(name, impl_type)
+            return prim(*args, **kwargs)
+
+        available = self._available_prims(name, reg, args, kwargs)
+        if ArrayType.MXNET in available and self._rules.allow(
+                name, ArrayType.MXNET, args, kwargs):
+            if self._gen_rule:
+                try:
+                    _logger.debug('Try primitive {} with MXNet '
+                                  'implementation.'.format(name))
+                    return get_result(ArrayType.MXNET)
+                except Exception as err:
+                    if ArrayType.NUMPY in available:
+                        try:
+                            _logger.debug('Error occurs. Try primitive {} with '
+                                          'NumPy implementation'.format(name))
+                            return get_result(ArrayType.NUMPY)
+                            self._rules.add(name, ArrayType.MXNET, args, kwargs)
+                        except Exception as e:
+                            raise e
+                    else:
+                        raise err
+            else:
+                _logger.debug('Execute primitive {} with '
+                              'MXNet implementation'.format(name))
+                return get_result(ArrayType.MXNET)
+        elif ArrayType.NUMPY in available:
+            _logger.debug('Execute primitive {} with '
+                          'MXNet implementation'.format(name))
+            return get_result(ArrayType.NUMPY) 
+        else:
+            raise GradientDefError(name, self.name)
 
 
 class PreferMXNetPolicy(Policy):
@@ -123,43 +213,6 @@ class OnlyMXNetPolicy(Policy):
             return ArrayType.MXNET
         else:
             return None
-
-
-def resolve_name(name, reg, plc, args, kwargs):
-    """Resolve a function name.
-
-    :param str name: Name of the function.
-    :param reg: Registry for functions.
-    :param Policy plc: Resolving policy.
-    :param tuple args: Positional arguments.
-    :param dict kwargs: Keyword arguments.
-    :return: A function after resolution.
-    """
-
-    def fst(t):
-        x, _ = t
-        return x
-
-    bp_args = tuple(
-        map(fst,
-            filter(lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
-                   enumerate(args))))
-    bp_kwargs = tuple(
-        map(fst,
-            filter(lambda x: isinstance(x[1], Value) and x[1].marked_for_bp,
-                   kwargs.items())))
-    available = reg.iter_available_types(name, bp_args, bp_kwargs)
-    preference = plc.decide(available, args, kwargs)
-    if preference is None:
-        if len(bp_args) == len(bp_kwargs) == 0:
-            raise PrimitivePolicyError(
-                "Cannot find implementation for function: {}() under "
-                "policy: {}.".format(name, plc.name))
-        else:
-            raise PrimitivePolicyError(
-                "Cannot find function with proper gradient implementation for "
-                ": {}() under policy: {}.".format(name, plc.name))
-    return reg.get(name, preference)
 
 
 def wrap_policy(policy):
