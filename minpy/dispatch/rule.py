@@ -3,6 +3,7 @@ from __future__ import print_function
 
 import os
 import yaml
+import numpy
 from minpy.array_variants import ArrayType
 from minpy.array import Array
 from minpy.utils import log
@@ -24,14 +25,23 @@ class RuleError(ValueError):
 
 
 class Rules(object):
-    """Rules interface."""
+    """Rules interface.
+    
+    Rule instance acts like singleton.
 
+    Parameters
+    ----------
+    loc : str
+        Path to rule configuration file.
+    """
     _rules = None
     _hash = None
     _env_var = '$MINPY_CONF'
     _conf_file = '.minpy_rules.conf'
+    _loc = None
 
-    def __init__(self):
+    def __init__(self, loc=None):
+        self.__class__._loc = loc
         self.load_rules_config()
 
     @classmethod
@@ -56,11 +66,14 @@ class Rules(object):
         # http://peak.telecommunity.com/DevCenter/setuptools#non-package-data-files
         if cls._rules is None or force:
             config = None
-            locs = (os.curdir, os.path.expandvars(cls._env_var),
-                    os.path.expanduser('~'))
-            for loc in locs:
+            locs = [os.curdir, os.path.expandvars(cls._env_var),
+                    os.path.expanduser('~')]
+            locs = [os.path.join(loc, cls._conf_file) for loc in locs]
+            if cls._loc is not None:
+                locs.insert(0, cls._loc)
+            for filename in locs:
                 try:
-                    with open(os.path.join(loc, cls._conf_file)) as f:
+                    with open(filename) as f:
                         config = yaml.safe_load(f)
                     break
                 except IOError:
@@ -73,7 +86,7 @@ class Rules(object):
                                         cls._conf_file, locs, cls._env_var))
                 config = {}
             else:
-                _logger.debug('Use rule configuration at {}'.format(loc))
+                _logger.info('Use rule configuration at %s', filename)
             cls._rules = config
             cls._build_hash()
 
@@ -83,8 +96,15 @@ class Rules(object):
 
         Save
         '''
-        with open(os.path.join(os.path.expanduser('~'), cls._conf_file), 'w+') as f:
+        loc = cls._loc
+        if loc is None:
+            loc = os.environ.get(cls._env_var)
+            if loc is None:
+                loc = os.path.expanduser('~')
+            loc = os.path.join(loc, cls._conf_file)
+        with open(loc, 'w+') as f:
                   yaml.safe_dump(cls._rules, f, default_flow_style=False)
+        _logger.info('Rule %s saved to %s.', cls.__name__, loc)
 
     @classmethod
     def reset_rules(cls):
@@ -144,9 +164,8 @@ class Blacklist(Rules):
         if impl_type != ArrayType.MXNET:
             return True
         if name in mxnet_blacklist_ops:
+            _logger.debug('Rule applies: %s is in internal MXNet op blacklist.', name)
             return False
-        if name in mxnet_type_compatible_ops:
-            return True
 
         def is_supported_array_type(x):
             if isinstance(x, Array):
@@ -155,13 +174,18 @@ class Blacklist(Rules):
             else:
                 return True
 
-        if not all(is_supported_array_type(x) for x in args):
-            return False
-
         if name in self._hash and (self._hash[name] is None or
                                     self._get_arg_rule_key(args, kwargs) in
                                     self._hash[name]):
+            _logger.debug('Rule applies: block by auto-generated rule on %s.',
+                          name)
             return False
+        if name in mxnet_type_compatible_ops:
+            return True
+        if not all(is_supported_array_type(x) for x in args):
+            _logger.debug('Rule applies: contain unsupported type for MXNet op.')
+            return False
+
         return True
     
     def add(self, name, impl_type, args, kwargs):
@@ -172,10 +196,15 @@ class Blacklist(Rules):
         type_seq = lambda args: [self._get_type_signiture(x) for x in args]
 
         self._rules.setdefault(name, [])
-        self._rules[name].append({'args': type_seq(args), 'kwargs':
-                                  list(kwargs.keys())})
         self._hash.setdefault(name, set())
-        self._hash[name].add(self._get_arg_rule_key(args, kwargs))
+        if self._get_arg_rule_key(args, kwargs) not in self._hash[name]:
+            entry = {'args': type_seq(args)}
+            if len(kwargs) > 0:
+                entry['kwargs'] = list(kwargs.keys())
+            self._rules[name].append(entry)
+            key = self._get_arg_rule_key(args, kwargs)
+            self._hash[name].add(key)
+            _logger.info('New rule {} added.'.format(key))
 
     @classmethod
     def _build_hash(cls):
@@ -184,7 +213,7 @@ class Blacklist(Rules):
             cls._hash[k] = set()
             for x in v:
                 cls._hash[k].add('-'.join(x['args']) + '+' +
-                                  '-'.join(sorted(x['kwargs'])))
+                                  '-'.join(sorted(x.get('kwargs', []))))
 
     def _get_type_signiture(self,x):
         if isinstance(x, Array):

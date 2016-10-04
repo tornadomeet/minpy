@@ -6,6 +6,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import functools
+import atexit
 import minpy
 import numpy
 from .rule import Blacklist
@@ -138,10 +139,14 @@ class AutoBlacklistPolicy(Policy):
     append_rule : bool
         If True, append new rules to loaded rules. Otherwise, start from
         scratch.
+    loc : str
+        Path to rule configuration file.
     """
-    def __init__(self, gen_rule=False, append_rule=True):
+    def __init__(self, gen_rule=False, append_rule=True, loc=None):
         self._gen_rule = gen_rule
-        self._rules = Blacklist()
+        self._rules = Blacklist(loc)
+        if gen_rule:
+            atexit.register(self.save_rules)
         if gen_rule and not append_rule:
             self._rules.reset_rules()
     
@@ -162,7 +167,7 @@ class AutoBlacklistPolicy(Policy):
                     return get_result(ArrayType.MXNET)
                 except Exception as err:
                     if ArrayType.NUMPY in possible_impl:
-                        _logger.debug('Error occurs. Try primitive {} with '
+                        _logger.info('Error occurs. Try primitive {} with '
                                       'NumPy implementation'.format(name))
                         self._rules.add(name, ArrayType.MXNET, args, kwargs)
                         return get_result(ArrayType.NUMPY)
@@ -174,7 +179,7 @@ class AutoBlacklistPolicy(Policy):
                 return get_result(ArrayType.MXNET)
         elif ArrayType.NUMPY in possible_impl:
             _logger.debug('Execute primitive {} with '
-                          'MXNet implementation'.format(name))
+                          'NumPy implementation'.format(name))
             return get_result(ArrayType.NUMPY) 
         else:
             raise GradientDefError(name, self.name)
