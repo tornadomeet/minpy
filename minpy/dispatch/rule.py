@@ -5,11 +5,22 @@ import os
 import yaml
 from minpy.array_variants import ArrayType
 
+# TODO: integrate this part into normal routine when MXNet fixes exception in
+# Python.
+mxnet_support_types = {'float', 'float16', 'float32', 'float64'}
+mxnet_type_compatible_ops = {'negative', 'add', 'subtract', 'multiply',
+                             'divide', 'true_divide', 'mod', 'power'}
+
+class RuleError(ValueError):
+    """Error in rule processing"""
+    pass
+
 
 class Rules(object):
     """Rules interface."""
 
     _rules = None
+    _hash = None
 
     def __init__(self):
         self._env_var = '$MINPY_CONF'
@@ -17,8 +28,13 @@ class Rules(object):
         self.load_rules_config()
 
     @classmethod
+    def _built_hash(cls):
+        """Clear hash and rebuild hash by rules"""
+        raise NotImplementedError()
+
+    @classmethod
     def load_rules_config(cls, force=False):
-        """Load rules configuration from configs.
+        """Load rules configuration from configs and build hash.
         
         Find rule configuration at current directory, self._env_var, and user's
         root in order. Then load the config into corresponding class variable.
@@ -52,14 +68,25 @@ class Rules(object):
             else:
                 _logger.debug('Use rule configuration at {}'.format(loc))
             cls._rules = config
+            cls._build_hash()
+
+    @classmethod
+    def save_rules_config(cls):
+        '''Save rules configuration from configs and build hash.
+
+        Save
+        '''
+        with open(os.path.join(os.path.expandvars('~'), self._conf_file) as f:
+                  yaml.safe_dump(self._rules, f, default_flow_style=False)
 
     @classmethod
     def reset_rules(cls):
         """Reset rules.
 
-        Delete all current rules.
+        Delete all current rules. Also clear hash.
         """
         cls._rules = {}
+        cls._hash = {}
 
     def allow(self, name, impl_type, args, kwargs):
         """Rule inquiry interface.
@@ -107,4 +134,60 @@ class Blacklist(Rules):
     """Blacklist rules for rule-based policy"""
 
     def allow(self, name, impl_type, args, kwargs):
-        pass
+        if impl_type != ArrayType.MXNET:
+            return True
+        if name in mxnet_type_compatible_ops:
+            return True
+
+        def is_supported_array_type(x):
+            if isinstance(x, Array):
+                # TODO: simplify here when MXNet, NumPy .dtype behavior become consistent
+                return numpy.dtype(x.dtype).name in mxnet_support_types
+            else:
+                return True
+
+        if not all(is_supported_array_type(x) for x in args):
+            return False
+
+        if name in self._hash and (self._hash[name] is None or
+                                    self._get_arg_rule_key(args, kwargs) in
+                                    self._hash[name]):
+            return False
+        return True
+    
+    def add(self, name, impl_type, args, kwargs):
+        if impl_type != ArrayType.MXNET:
+            raise RuleError('This rule only blacklists MXNet ops.')
+
+        # Return type sequence
+        type_seq = lambda args: [self._get_type_signiture(x) for x in args]
+
+        self._rules.setdefault(name, [])
+        self._rules[name].append({'args': type_seq(args), 'kwargs':
+                                  list(kwargs.keys())})
+        self._hash.setdefault(name, set())
+        self._hash[name].add(self._get_arg_rule_key(args, kwargs))
+
+    @classmethod
+    def _built_hash(cls):
+        self._hash = {}
+        for k, v in self._rules.items():
+            self._hash[k] = set()
+            for x in v:
+                self._hash[k].add('-'.join(x['args']) + '+' +
+                                  '-'.join(sorted(x['kwargs'])))
+
+    @staticmethod
+    def _get_type_signiture(x):
+        if isinstance(x, Array):
+            return 'array_dim' + str(x.dim)
+        elif isinstance(x, Number):
+            return type(x.val).__name__
+        else:
+            return type(x).__name__
+
+    @staticmethod
+    def _get_arg_rule_key(args, kwargs):
+        arg_key = [self.get_type_signiture(x) for x in args]
+        kwarg_key = sorted(kwargs.keys())
+        return '-'.join(arg_key) + '+' + '-'.join(kwarg_key)   
