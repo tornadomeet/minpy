@@ -6,6 +6,7 @@ import yaml
 import numpy
 from minpy.array_variants import ArrayType
 from minpy.array import Array
+from minpy.array import Number
 from minpy.utils import log
 
 # pylint: disable= invalid-name
@@ -19,6 +20,7 @@ mxnet_type_compatible_ops = {'negative', 'add', 'subtract', 'multiply',
                              'divide', 'true_divide', 'mod', 'power'}
 mxnet_blacklist_ops = {'array'}
 
+
 class RuleError(ValueError):
     """Error in rule processing"""
     pass
@@ -26,7 +28,7 @@ class RuleError(ValueError):
 
 class Rules(object):
     """Rules interface.
-    
+
     Rule instance acts like singleton.
 
     Parameters
@@ -52,7 +54,7 @@ class Rules(object):
     @classmethod
     def load_rules_config(cls, force=False):
         """Load rules configuration from configs and build hash.
-        
+
         Find rule configuration at current directory, self._env_var, and user's
         root in order. Then load the config into corresponding class variable.
         Load empty rules if loading fails.
@@ -79,11 +81,12 @@ class Rules(object):
                 except IOError:
                     pass
                 except yaml.YAMLError:
-                    _logger.warn('Find corrupted configuration at {}'.format(loc))
+                    _logger.warn('Find corrupted configuration at {}'.format(
+                        loc))
             if config is None:
                 _logger.error("Cannot find MinPy's rule configuration {} "
-                                    "at {}. You can also use {} to specify.".format(
-                                        cls._conf_file, locs, cls._env_var))
+                              "at {}. You can also use {} to specify.".format(
+                                  cls._conf_file, locs, cls._env_var))
                 config = {}
             else:
                 _logger.info('Use rule configuration at %s', filename)
@@ -103,7 +106,7 @@ class Rules(object):
                 loc = os.path.expanduser('~')
             loc = os.path.join(loc, cls._conf_file)
         with open(loc, 'w+') as f:
-                  yaml.safe_dump(cls._rules, f, default_flow_style=False)
+            yaml.safe_dump(cls._rules, f, default_flow_style=False)
         _logger.info('Rule %s saved to %s.', cls.__name__, loc)
 
     @classmethod
@@ -124,7 +127,7 @@ class Rules(object):
         ----------
         name : str
             The dispatch name.
-        impl_type : ArrayType 
+        impl_type : ArrayType
             The type of implementation.
         args : list
             The positional arguments passed to the primitive.
@@ -137,7 +140,7 @@ class Rules(object):
             True if implementation is allowed; False otherwize.
         """
         raise NotImplementedError()
-    
+
     def add(self, name, impl_type, args, kwargs):
         """Rule registration interface.
 
@@ -147,7 +150,7 @@ class Rules(object):
         ----------
         name : str
             The dispatch name.
-        impl_type : ArrayType 
+        impl_type : ArrayType
             The type of implementation.
         args : list
             The positional arguments passed to the primitive.
@@ -164,30 +167,33 @@ class Blacklist(Rules):
         if impl_type != ArrayType.MXNET:
             return True
         if name in mxnet_blacklist_ops:
-            _logger.debug('Rule applies: %s is in internal MXNet op blacklist.', name)
+            _logger.debug(
+                'Rule applies: %s is in internal MXNet op blacklist.', name)
             return False
 
         def is_supported_array_type(x):
             if isinstance(x, Array):
-                # TODO: simplify here when MXNet, NumPy .dtype behavior become consistent
+                # TODO: simplify here when MXNet, NumPy .dtype behavior become
+                # consistent
                 return numpy.dtype(x.dtype).name in mxnet_support_types
             else:
                 return True
 
-        if name in self._hash and (self._hash[name] is None or
-                                    self._get_arg_rule_key(args, kwargs) in
-                                    self._hash[name]):
+        if name in self._hash and (
+                self._hash[name] is None or
+                self._get_arg_rule_key(args, kwargs) in self._hash[name]):
             _logger.debug('Rule applies: block by auto-generated rule on %s.',
                           name)
             return False
         if name in mxnet_type_compatible_ops:
             return True
         if not all(is_supported_array_type(x) for x in args):
-            _logger.debug('Rule applies: contain unsupported type for MXNet op.')
+            _logger.debug(
+                'Rule applies: contain unsupported type for MXNet op.')
             return False
 
         return True
-    
+
     def add(self, name, impl_type, args, kwargs):
         if impl_type != ArrayType.MXNET:
             raise RuleError('This rule only blacklists MXNet ops.')
@@ -212,10 +218,10 @@ class Blacklist(Rules):
         for k, v in cls._rules.items():
             cls._hash[k] = set()
             for x in v:
-                cls._hash[k].add('-'.join(x['args']) + '+' +
-                                  '-'.join(sorted(x.get('kwargs', []))))
+                cls._hash[k].add('-'.join(x['args']) + '+' + '-'.join(
+                    sorted(x.get('kwargs', []))))
 
-    def _get_type_signiture(self,x):
+    def _get_type_signiture(self, x):
         if isinstance(x, Array):
             return 'array_dim' + str(x.ndim)
         elif isinstance(x, Number):
@@ -226,4 +232,4 @@ class Blacklist(Rules):
     def _get_arg_rule_key(self, args, kwargs):
         arg_key = [self._get_type_signiture(x) for x in args]
         kwarg_key = sorted(kwargs.keys())
-        return '-'.join(arg_key) + '+' + '-'.join(kwarg_key)   
+        return '-'.join(arg_key) + '+' + '-'.join(kwarg_key)

@@ -8,27 +8,20 @@ from __future__ import print_function
 import functools
 import atexit
 import minpy
-import numpy
 from .rule import Blacklist
 from minpy.array import Value
-from minpy.array import Array
-from minpy.array import Number
 from minpy.array_variants import ArrayType
 from minpy.utils import log
 
 # pylint: disable= invalid-name
 _logger = log.get_logger(__name__)
+
 # pylint: edle= invalid-name
 
 
 class PrimitivePolicyError(ValueError):
-    """Error during choosing primitives."""
-    pass
+    """Error during choosing primitives.
 
-
-class GradientDefError(ValueError):
-    """Error due to lack of gradient definition.
-    
     Parameters
     ----------
     name : str
@@ -37,9 +30,10 @@ class GradientDefError(ValueError):
         Name of the policy in which the error occurs.
     """
     def __init__(self, name, policy_name):
-        super(GradientDefError, self).__init__("Cannot find function with proper gradient "
-                         "implementation for : {}() under policy"
-                         ": {}.".format(name, policy_name))
+        super(PrimitivePolicyError,
+              self).__init__("Cannot find implementation for function: %s() "
+                             "under policy: %s. Maybe lack of gradient "
+                             "implementation?", name, self.name)
 
 
 class Policy(object):
@@ -116,12 +110,7 @@ class Policy(object):
         available = self._available_prims(name, reg, args, kwargs)
         preference = self.decide(available, args, kwargs)
         if preference is None:
-            if len(bp_args) == len(bp_kwargs) == 0:
-                raise PrimitivePolicyError(
-                    "Cannot find implementation for function: {}() under "
-                    "policy: {}.".format(name, self.name))
-            else:
-                raise GradientDefError(name, self.name)
+            raise PrimitivePolicyError(name, self.name)
         prim = reg.get(name, preference)
         _logger.debug('Found primitive "{}" with type {}.'.format(
             name, prim.typestr))
@@ -142,6 +131,7 @@ class AutoBlacklistPolicy(Policy):
     loc : str
         Path to rule configuration file.
     """
+
     def __init__(self, gen_rule=False, append_rule=True, loc=None):
         self._gen_rule = gen_rule
         self._rules = Blacklist(loc)
@@ -149,9 +139,8 @@ class AutoBlacklistPolicy(Policy):
             atexit.register(self.save_rules)
         if gen_rule and not append_rule:
             self._rules.reset_rules()
-    
-    def resolve_call(self, name, reg, args, kwargs):
 
+    def resolve_call(self, name, reg, args, kwargs):
         def get_result(impl_type):
             prim = reg.get(name, impl_type)
             return prim(*args, **kwargs)
@@ -168,7 +157,7 @@ class AutoBlacklistPolicy(Policy):
                 except Exception as err:
                     if ArrayType.NUMPY in possible_impl:
                         _logger.info('Error occurs. Try primitive {} with '
-                                      'NumPy implementation'.format(name))
+                                     'NumPy implementation'.format(name))
                         self._rules.add(name, ArrayType.MXNET, args, kwargs)
                         return get_result(ArrayType.NUMPY)
                     else:
@@ -180,9 +169,9 @@ class AutoBlacklistPolicy(Policy):
         elif ArrayType.NUMPY in possible_impl:
             _logger.debug('Execute primitive {} with '
                           'NumPy implementation'.format(name))
-            return get_result(ArrayType.NUMPY) 
+            return get_result(ArrayType.NUMPY)
         else:
-            raise GradientDefError(name, self.name)
+            raise PrimitivePolicyError(name, self.name)
 
     def save_rules(self):
         """Save rules by rule's setting"""
