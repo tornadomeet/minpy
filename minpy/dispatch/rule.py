@@ -4,6 +4,7 @@ from __future__ import print_function
 import os
 import yaml
 from minpy.array_variants import ArrayType
+from minpy.array import Array
 from minpy.utils import log
 
 # pylint: disable= invalid-name
@@ -15,6 +16,7 @@ _logger = log.get_logger(__name__)
 mxnet_support_types = {'float', 'float16', 'float32', 'float64'}
 mxnet_type_compatible_ops = {'negative', 'add', 'subtract', 'multiply',
                              'divide', 'true_divide', 'mod', 'power'}
+mxnet_blacklist_ops = {'array'}
 
 class RuleError(ValueError):
     """Error in rule processing"""
@@ -81,8 +83,8 @@ class Rules(object):
 
         Save
         '''
-        with open(os.path.join(os.path.expandvars('~'), self._conf_file)) as f:
-                  yaml.safe_dump(self._rules, f, default_flow_style=False)
+        with open(os.path.join(os.path.expanduser('~'), cls._conf_file), 'w+') as f:
+                  yaml.safe_dump(cls._rules, f, default_flow_style=False)
 
     @classmethod
     def reset_rules(cls):
@@ -141,6 +143,8 @@ class Blacklist(Rules):
     def allow(self, name, impl_type, args, kwargs):
         if impl_type != ArrayType.MXNET:
             return True
+        if name in mxnet_blacklist_ops:
+            return False
         if name in mxnet_type_compatible_ops:
             return True
 
@@ -182,17 +186,15 @@ class Blacklist(Rules):
                 cls._hash[k].add('-'.join(x['args']) + '+' +
                                   '-'.join(sorted(x['kwargs'])))
 
-    @staticmethod
-    def _get_type_signiture(x):
+    def _get_type_signiture(self,x):
         if isinstance(x, Array):
-            return 'array_dim' + str(x.dim)
+            return 'array_dim' + str(x.ndim)
         elif isinstance(x, Number):
             return type(x.val).__name__
         else:
             return type(x).__name__
 
-    @staticmethod
-    def _get_arg_rule_key(args, kwargs):
-        arg_key = [self.get_type_signiture(x) for x in args]
+    def _get_arg_rule_key(self, args, kwargs):
+        arg_key = [self._get_type_signiture(x) for x in args]
         kwarg_key = sorted(kwargs.keys())
         return '-'.join(arg_key) + '+' + '-'.join(kwarg_key)   

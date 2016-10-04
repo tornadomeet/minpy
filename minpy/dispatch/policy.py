@@ -17,7 +17,7 @@ from minpy.utils import log
 
 # pylint: disable= invalid-name
 _logger = log.get_logger(__name__)
-# pylint: enable= invalid-name
+# pylint: edle= invalid-name
 
 
 class PrimitivePolicyError(ValueError):
@@ -152,7 +152,8 @@ class AutoBlacklistPolicy(Policy):
             return prim(*args, **kwargs)
 
         available = self._available_prims(name, reg, args, kwargs)
-        if ArrayType.MXNET in available and self._rules.allow(
+        possible_impl = set(x.type for x in available)
+        if ArrayType.MXNET in possible_impl and self._rules.allow(
                 name, ArrayType.MXNET, args, kwargs):
             if self._gen_rule:
                 try:
@@ -160,26 +161,27 @@ class AutoBlacklistPolicy(Policy):
                                   'implementation.'.format(name))
                     return get_result(ArrayType.MXNET)
                 except Exception as err:
-                    if ArrayType.NUMPY in available:
-                        try:
-                            _logger.debug('Error occurs. Try primitive {} with '
-                                          'NumPy implementation'.format(name))
-                            return get_result(ArrayType.NUMPY)
-                            self._rules.add(name, ArrayType.MXNET, args, kwargs)
-                        except Exception as e:
-                            raise e
+                    if ArrayType.NUMPY in possible_impl:
+                        _logger.debug('Error occurs. Try primitive {} with '
+                                      'NumPy implementation'.format(name))
+                        self._rules.add(name, ArrayType.MXNET, args, kwargs)
+                        return get_result(ArrayType.NUMPY)
                     else:
                         raise err
             else:
                 _logger.debug('Execute primitive {} with '
                               'MXNet implementation'.format(name))
                 return get_result(ArrayType.MXNET)
-        elif ArrayType.NUMPY in available:
+        elif ArrayType.NUMPY in possible_impl:
             _logger.debug('Execute primitive {} with '
                           'MXNet implementation'.format(name))
             return get_result(ArrayType.NUMPY) 
         else:
             raise GradientDefError(name, self.name)
+
+    def save_rules(self):
+        """Save rules by rule's setting"""
+        self._rules.save_rules_config()
 
 
 class PreferMXNetPolicy(Policy):
