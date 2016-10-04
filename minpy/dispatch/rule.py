@@ -4,6 +4,11 @@ from __future__ import print_function
 import os
 import yaml
 from minpy.array_variants import ArrayType
+from minpy.utils import log
+
+# pylint: disable= invalid-name
+_logger = log.get_logger(__name__)
+# pylint: enable= invalid-name
 
 # TODO: integrate this part into normal routine when MXNet fixes exception in
 # Python.
@@ -21,14 +26,14 @@ class Rules(object):
 
     _rules = None
     _hash = None
+    _env_var = '$MINPY_CONF'
+    _conf_file = '.minpy_rules.conf'
 
     def __init__(self):
-        self._env_var = '$MINPY_CONF'
-        self._conf_file = '.minpy_rules.conf'
         self.load_rules_config()
 
     @classmethod
-    def _built_hash(cls):
+    def _build_hash(cls):
         """Clear hash and rebuild hash by rules"""
         raise NotImplementedError()
 
@@ -49,11 +54,11 @@ class Rules(object):
         # http://peak.telecommunity.com/DevCenter/setuptools#non-package-data-files
         if cls._rules is None or force:
             config = None
-            locs = (os.curdir, os.path.expandvars(self._conf_file),
+            locs = (os.curdir, os.path.expandvars(cls._env_var),
                     os.path.expanduser('~'))
             for loc in locs:
                 try:
-                    with open(os.path.join(loc, self._conf_file)) as f:
+                    with open(os.path.join(loc, cls._conf_file)) as f:
                         config = yaml.safe_load(f)
                     break
                 except IOError:
@@ -61,9 +66,9 @@ class Rules(object):
                 except yaml.YAMLError:
                     _logger.warn('Find corrupted configuration at {}'.format(loc))
             if config is None:
-                raise _logger.error("Cannot find MinPy's rule configuration {} "
+                _logger.error("Cannot find MinPy's rule configuration {} "
                                     "at {}. You can also use {} to specify.".format(
-                                        self._conf_file, locs, self._env_var))
+                                        cls._conf_file, locs, cls._env_var))
                 config = {}
             else:
                 _logger.debug('Use rule configuration at {}'.format(loc))
@@ -76,7 +81,7 @@ class Rules(object):
 
         Save
         '''
-        with open(os.path.join(os.path.expandvars('~'), self._conf_file) as f:
+        with open(os.path.join(os.path.expandvars('~'), self._conf_file)) as f:
                   yaml.safe_dump(self._rules, f, default_flow_style=False)
 
     @classmethod
@@ -169,12 +174,12 @@ class Blacklist(Rules):
         self._hash[name].add(self._get_arg_rule_key(args, kwargs))
 
     @classmethod
-    def _built_hash(cls):
-        self._hash = {}
-        for k, v in self._rules.items():
-            self._hash[k] = set()
+    def _build_hash(cls):
+        cls._hash = {}
+        for k, v in cls._rules.items():
+            cls._hash[k] = set()
             for x in v:
-                self._hash[k].add('-'.join(x['args']) + '+' +
+                cls._hash[k].add('-'.join(x['args']) + '+' +
                                   '-'.join(sorted(x['kwargs'])))
 
     @staticmethod
