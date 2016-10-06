@@ -6,7 +6,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import functools
-import atexit
 import minpy
 from .rule import Blacklist
 from minpy.array import Value
@@ -16,7 +15,7 @@ from minpy.utils import log
 # pylint: disable= invalid-name
 _logger = log.get_logger(__name__)
 
-# pylint: edle= invalid-name
+# pylint: enadle= invalid-name
 
 
 class PrimitivePolicyError(ValueError):
@@ -134,9 +133,7 @@ class AutoBlacklistPolicy(Policy):
 
     def __init__(self, gen_rule=False, append_rule=True, loc=None):
         self._gen_rule = gen_rule
-        self._rules = Blacklist(loc)
-        if gen_rule:
-            atexit.register(self.save_rules)
+        self._rules = Blacklist(loc=loc, save_config_atexit=gen_rule)
         if gen_rule and not append_rule:
             self._rules.reset_rules()
 

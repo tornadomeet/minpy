@@ -4,6 +4,7 @@ from __future__ import print_function
 import os
 import yaml
 import numpy
+import atexit
 from minpy.array_variants import ArrayType
 from minpy.array import Array
 from minpy.array import Number
@@ -41,9 +42,13 @@ class Rules(object):
     _env_var = '$MINPY_CONF'
     _conf_file = '.minpy_rules.conf'
     _loc = None
+    _save_config_atexit = False
 
-    def __init__(self, loc=None):
+    def __init__(self, loc=None, save_config_atexit=False):
         self.__class__._loc = loc
+        if save_config_atexit and not self._save_config_atexit:
+            self.__class__._save_config_atexit = True
+            atexit.register(self.save_rules_config)
         self.load_rules_config()
 
     @classmethod
