@@ -16,9 +16,12 @@ _logger = log.get_logger(__name__)
 
 # TODO: integrate this part into normal routine when MXNet fixes exception in
 # Python.
-mxnet_support_types = {'float', 'float16', 'float32', 'float64'}
+# Currently MXNet doesn't throw exception raised in mshadow to Python. Avoid
+# them by specifying a handcraft whitelist.
+mxnet_support_types = {'float', 'float16', 'float32'}
 mxnet_type_compatible_ops = {'negative', 'add', 'subtract', 'multiply',
                              'divide', 'true_divide', 'mod', 'power'}
+# These are MXNet ops that introduces potential issues for further computation.
 mxnet_blacklist_ops = {'array'}
 
 
